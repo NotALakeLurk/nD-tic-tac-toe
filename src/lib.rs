@@ -4,6 +4,9 @@ pub struct Board<'a> {
     dimension: u8, // this dimension will be suitable for out-of-bounds checks as tic-tac-toe
     // boards have sides with a known length (3), i.e. they are hypercubes
     data: &'a mut [u8],
+
+    num_players: u8,
+    current_player: u8,
 }
 
 #[derive(Debug)]
@@ -23,11 +26,57 @@ impl std::fmt::Display for IndexError {
 
 impl std::error::Error for IndexError {}
 
+#[derive(Debug)]
+pub enum PlaceError {
+    Unsupported,
+    Occupied,
+}
+
+impl std::fmt::Display for PlaceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unsupported => write!(f, "position is not supported by previous pieces"),
+            Self::Occupied => write!(f, "position is already occupied"),
+        }
+    }
+}
+
+impl std::error::Error for PlaceError {}
+
+#[derive(Debug)]
+pub enum Error {
+    PlaceError(PlaceError),
+    IndexError(IndexError),
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::PlaceError(e) => write!(f, "Placement error: {}", e),
+            Self::IndexError(e) => write!(f, "Index error: {}", e),
+        }
+    }
+}
+
+impl From<IndexError> for Error {
+    fn from(value: IndexError) -> Self {
+        Self::IndexError(value)
+    }
+}
+
+impl From<PlaceError> for Error {
+    fn from(value: PlaceError) -> Self {
+        Self::PlaceError(value)
+    }
+}
+
+impl std::error::Error for Error {}
+
 impl Board<'_> {
     const SIZE: u8 = 3; // the length of a tic-tac-toe board, also the number of pieces in a row
     // to win
 
-    pub fn new(dimension: u8) -> Self {
+    pub fn new(dimension: u8, num_players: u8) -> Self {
         let length = Self::get_data_length(dimension);
         let layout = Self::get_layout(dimension);
 
@@ -37,6 +86,8 @@ impl Board<'_> {
         return Self {
             dimension,
             data,
+            num_players,
+            current_player: 0,
         }
     }
 
@@ -68,7 +119,6 @@ impl Board<'_> {
     }
 
     /// Get the value at a position
-    /// note: consider using a result in the future?
     pub fn get(&self, pos: &[u8]) -> Result<u8, IndexError> {
         if pos.len() != self.dimension.into() {
             return Err(IndexError::OutOfDimension); // error here 
@@ -87,8 +137,84 @@ impl Board<'_> {
         Ok(self.data[index])
     }
 
-    pub fn place_piece(&self, player: u8, position: &[u8]) -> Result<(), IndexError> {
-        todo!()
+    /// Place a piece on the board, taking into account gravity. Errors if position cannot be
+    /// indexed or position is unsupported. Otherwise returns ().
+    pub fn place_piece(&mut self, player: u8, position: &[u8]) -> Result<(), Error> {
+        // find the highest non-zero dimension of the position
+        let highest = (position.len()-1) - position.iter().rev().position(|&e| e != 0).unwrap_or(position.len()-1);
+
+        // ignore support for placements on the original 2d board
+        if highest > 1 {
+            // get the position directly "below" this (i.e. the position that supports the current
+            // position)
+            let mut supporting_pos = Vec::from(position);
+            supporting_pos[highest] -= 1;
+
+            // 0 == no piece there == no support for current position
+            if self.get(&supporting_pos)? == 0 {
+                return Err(PlaceError::Unsupported.into());
+            }
+        }
+
+        let val = self.get_mut(position)?;
+
+        if *val != 0 {
+            return Err(PlaceError::Occupied.into())
+        }
+
+        // place the piece
+        *val = player;
+
+        Ok(())
+    }
+
+    /// Check to see if there is a win at the given position. Intended to be used directly after
+    /// placing a piece to detect a winning move. 
+    pub fn is_win_at(&self, pos: &[u8]) -> Result<bool, IndexError> {
+        // the key will be to just check_win_dir each directional vector from the position
+        todo!("Woah! This part is way harder than expected!");
+    }
+
+    /// Check for a win at a position along a given vector
+    fn check_win_dir(&self, pos: &[u8], dir: &[u8]) -> Result<bool, Error> {
+        // the key to doing this is realizing that the vector wraps at the edges of the board. For
+        // example, if you check along a 1d board: 
+        // ```
+        // for i in 0..3 {
+        //  if (pos+(i*dir)) %euclid 3 != player { return false };
+        // }
+        // ```
+        // This is because if you just add the directional vector you travel a certain path, now
+        // when you constrain it to the board it wraps around perfectly!
+        // pos = (0,0); dir = (1,-1); =>
+        // pos2 = (1,2); pos3 = (2,1);
+        // These positions lie on a line and it works out!
+        
+        if pos.len() != dir.len() {
+            panic!("direction index had different dimension than position");
+        }
+
+        let dir = Vec::from(dir);
+        let mut pos = Vec::from(pos);
+
+        let player = self.get(&pos)?;
+
+        // 2 steps as the length of the board is 3 in any dimension (we already got the player from
+        // the starting position
+        for _ in 0..2 {
+            // travel along the direction vector
+            for i in 0..pos.len() {
+                // add each component, limiting to the indexable area (3 in each dimension)
+                pos[i] = (pos[i] + dir[i]) % 3;
+            }
+
+            // check if the position is the player
+            if self.get(&pos)? != player {
+                return Ok(false);
+            }
+        }
+
+        return Ok(true);
     }
 }
 
@@ -109,7 +235,7 @@ mod tests {
 
     #[test]
     fn create_board() {
-        let board = Board::new(3);
+        let board = Board::new(3, 1);
         let expected = [0_u8; 3_usize.pow(3)];
         let actual = &board.data;
         
@@ -122,7 +248,7 @@ mod tests {
 
     #[test]
     fn get() {
-        let board = Board::new(4);
+        let board = Board::new(4, 1);
         let expected = 4;
 
         // 0 1 2 |  9 10 11 | 18 19 20 \
@@ -136,13 +262,94 @@ mod tests {
 
     #[test]
     fn get_mut() {
-        let mut board = Board::new(6);
+        let mut board = Board::new(6, 1);
         let expected = 7;
         let pos = [0,0,0,0,3,0];
 
         *board.get_mut(&pos).unwrap() = expected;
 
         let actual = board.get(&pos).unwrap();
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn valid_placement() {
+        let mut board = Board::new(3, 1);
+        let expected = [
+            0,0,0,1,0,0,0,0,0,
+            0,0,0,1,0,0,0,0,0,
+        ];
+
+        board.place_piece(1, &[0,1,0]).unwrap();
+        board.place_piece(1, &[0,1,1]).unwrap();
+
+        // compare board data with expected data
+        assert!(expected.iter()
+            .zip(board.data.iter())
+            .all(|(a, b)| {a == b}) 
+        );
+    }
+
+    #[test]
+    fn unsupported_placement() {
+        let mut board = Board::new(3, 1);
+        let expected = Error::PlaceError(PlaceError::Unsupported);
+
+        let actual = board.place_piece(1, &[0,1,1]).unwrap_err();
+
+        assert!(matches!(actual, expected))
+    }
+
+    #[test]
+    fn occupied_placement() {
+        let mut board = Board::new(3, 1);
+        let expected = Error::PlaceError(PlaceError::Occupied);
+
+        board.place_piece(1, &[0,1,0]).unwrap();
+        let actual = board.place_piece(1, &[0,1,0]).unwrap_err();
+
+        assert!(matches!(actual, expected))
+    }
+    
+    #[test]
+    fn win_dir_straight() {
+        let mut board = Board::new(3, 1);
+        let expected = true;
+        
+        board.place_piece(1, &[0,0,0]).unwrap();
+        board.place_piece(1, &[0,1,0]).unwrap();
+        board.place_piece(1, &[0,2,0]).unwrap();
+
+        let actual = board.check_win_dir(&[0,0,0], &[0,1,0]).unwrap();
+
+        assert_eq!(actual, expected);
+    }
+    
+    #[test]
+    fn win_dir_diag() {
+        let mut board = Board::new(3, 1);
+        let expected = true;
+        
+        board.place_piece(1, &[0,0,0]).unwrap();
+        board.place_piece(1, &[1,1,0]).unwrap();
+        board.place_piece(1, &[2,2,0]).unwrap();
+
+        let actual = board.check_win_dir(&[0,0,0], &[1,1,0]).unwrap();
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn win_dir_loop() {
+        let mut board = Board::new(3, 1);
+        let expected = true;
+        
+        board.place_piece(1, &[0,0,0]).unwrap();
+        board.place_piece(1, &[1,1,0]).unwrap();
+        board.place_piece(1, &[2,2,0]).unwrap();
+
+        let actual = board.check_win_dir(&[2,2,0], &[1,1,0]).unwrap();
 
         assert_eq!(actual, expected);
     }

@@ -23,6 +23,7 @@
             clang
             llvmPackages.bintools
             rustup
+            gdb
           ];
 
           RUSTC_VERSION = overrides.toolchain.channel;
