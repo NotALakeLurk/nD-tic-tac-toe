@@ -1,6 +1,6 @@
-use std::io::{self, Read, prelude::*};
+use std::io::{self, prelude::*};
 
-use tic_tac_toe_nd::Board;
+use expanded_ttt::Board;
 
 fn main() {
     let stdin = io::stdin();
@@ -16,7 +16,8 @@ fn main() {
         _ = stdin.read_line(&mut input).unwrap();
 
         match input.trim().parse() {
-            Ok(val) => break val,
+            Ok(val) if val > 0 => break val,
+            Ok(_) => println!("Need at least 1 dimension (though that wouldn't be very fun)"),
             Err(e) => println!("Failed to parse as u8: {e}"),
         }
     };
@@ -75,5 +76,5 @@ fn main() {
         let _ = stdout.flush();
     }
 
-    println!("YOU WIN");
+    println!("Player {}, YOU WIN", current_player+1);
 }

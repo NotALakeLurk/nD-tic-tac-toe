@@ -1,5 +1,5 @@
 [package]
-name = "tic-tac-toe-nd"
+name = "expanded-ttt"
 version = "0.1.0"
 edition = "2024"
 
